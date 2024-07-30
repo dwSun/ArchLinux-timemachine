@@ -37,3 +37,8 @@ To verify that hard linking actually works, use the `stat` command on a file in 
 * I do backups nightly, and the script stores them with the current date in the directory name. So any additional backups during the day will end up overwriting the current date's backup. That's fine for me, but if you want to keep more frequent copies, you should look at the `$TODAY` variable in the script. Maybe add hour or hour-minute to the format. Please understand that the first backup to every new date/time should be a full backup, as explained above.
 * rsync is run with --one-file-system. If you have several filesystems to backup, you must supply them all as arguments to the script. Example: If /home is mounted on a separate partition you would make a system backup like this: `do_incremental_rsync.sh /home /`
 
+
+
+# 2024-07-30
+
+这个是我自己用的版本，由于远程nas并不能很好的处理文件系统。所以我把这个脚本做了一下改动，在远程机器上运行，备份本地的数据，目前是手动启动的，回头看看有机会再给改成一个能自动启动得好了。

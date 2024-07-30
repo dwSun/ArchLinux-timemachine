@@ -15,6 +15,16 @@ function die {
     exit 1
 }
 
+
+
+ping -c 1 -w 1 192.168.5.149 &>/dev/null && result=0 || result=1
+if [ "$result" == 0 ];then
+    echo -e "online"
+else
+    die -e "\033[31;1m Server is down!\033[0m"
+fi
+
+
 # Go to directory of this script
 cd "$( dirname "$0" )"
 
@@ -32,12 +42,6 @@ source backup.conf || die "You must supply backup.conf"
 # check for exclude-file
 [ -f backup_exclude.conf ] || die "You must supply backup_exclude.conf (empty is ok)"
 
-VERBOSE_ARGS=""
-if [ "x$1" = "x-v" ]; then
-    VERBOSE_ARGS="--progress -v"
-    shift
-fi
-
 BACKUP_WHAT=("/")
 if [ $# -gt 0 ]; then
     BACKUP_WHAT=("$@")
@@ -53,20 +57,10 @@ mkdir -p "$NEW_BACKUP"
 [ -d "$NEW_BACKUP" ] || die "No such directory: $NEW_BACKUP"
 
 for backup_item in "${BACKUP_WHAT[@]}"; do
-    backup_item_real=`readlink -f "$backup_item" 2>/dev/null`
-
-    [ -z "$backup_item_real" ] && die "Cannot resolv canonical path. Missing tool readlink?"
-
-    if [ ! -d "$backup_item_real" ]; then
-        echo "$backup_item: Not a directory, skipping!"
-        continue
-    fi
-
-#   echo "rsync $VERBOSE_ARGS -a --delete --relative --one-file-system --numeric-ids --exclude-from=backup_exclude.conf --link-dest=\"$CURRENT_BACKUP\" \"$backup_item_real\" \"$NEW_BACKUP\""
-    rsync $VERBOSE_ARGS -a --delete --relative --one-file-system --numeric-ids --exclude-from=backup_exclude.conf --link-dest="$CURRENT_BACKUP" "$backup_item_real" "$NEW_BACKUP"
+    echo "rsync -avpPe ssh --delete --relative --one-file-system --numeric-ids --exclude-from=backup_exclude.conf --link-dest=\"$CURRENT_BACKUP\" \"$backup_item_real\" \"$NEW_BACKUP\""
+    rsync -avpPe ssh --delete --relative --one-file-system --numeric-ids --exclude-from=backup_exclude.conf --link-dest="$CURRENT_BACKUP" "$backup_item" "$NEW_BACKUP"
 done
 
 # Update soft link to current backup
 [ -h "$CURRENT_BACKUP" ] && rm -f "$CURRENT_BACKUP"
 ln -s "$NEW_BACKUP" "$CURRENT_BACKUP" || die "Cannot create soft link '$NEW_BACKUP' -> '$CURRENT_BACKUP'"
-
