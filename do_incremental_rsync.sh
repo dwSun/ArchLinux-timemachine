@@ -47,6 +47,8 @@ if [ $# -gt 0 ]; then
     BACKUP_WHAT=("$@")
 fi
 
+echo "Backup to: ${BACKUP_WHAT}"
+
 TODAY=`date +"%Y-%m-%d"`
 
 CURRENT_BACKUP="${BACKUP_BASE}/${BACKUP_NAME}-current"
@@ -57,7 +59,7 @@ mkdir -p "$NEW_BACKUP"
 [ -d "$NEW_BACKUP" ] || die "No such directory: $NEW_BACKUP"
 
 for backup_item in "${BACKUP_WHAT[@]}"; do
-    echo "rsync -avpPe ssh --delete --relative --one-file-system --numeric-ids --exclude-from=backup_exclude.conf --link-dest=\"$CURRENT_BACKUP\" \"$backup_item_real\" \"$NEW_BACKUP\""
+    echo "rsync -avpPe ssh --delete --relative --one-file-system --numeric-ids --exclude-from=backup_exclude.conf --link-dest=\"$CURRENT_BACKUP\" \"$backup_item\" \"$NEW_BACKUP\""
     rsync -avpPe ssh --delete --relative --one-file-system --numeric-ids --exclude-from=backup_exclude.conf --link-dest="$CURRENT_BACKUP" "$backup_item" "$NEW_BACKUP"
 done
 
