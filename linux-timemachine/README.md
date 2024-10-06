@@ -42,3 +42,13 @@ To verify that hard linking actually works, use the `stat` command on a file in 
 # 2024-07-30
 
 这个是我自己用的版本，由于远程nas并不能很好的处理文件系统。所以我把这个脚本做了一下改动，在远程机器上运行，备份本地的数据，目前是手动启动的，回头看看有机会再给改成一个能自动启动得好了。
+
+
+# 2024-08-27
+
+这是目前使用的方式，在crontab里面加定时执行脚本。
+
+# m h  dom mon dow   command
+5 12 * * * bash -c "cd /home/david/timemachine/linux-timemachine && ./do_incremental_rsync.sh 192.168.5.149:/home/david 192.168.5.149:/media/Data/"
+5 12 * * * bash -c "cd /home/david/timemachine/linux-timemachine-b && ./do_incremental_rsync.sh 192.168.5.149:/home/david 192.168.5.149:/media/Data/"
+5 12 * * * bash -c "cd /home/david/timemachine/linux-timemachine-sys && ./do_incremental_rsync.sh 192.168.5.149:/ 192.168.5.149:/media/Data/"
