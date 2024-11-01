@@ -5,7 +5,5 @@
 这个是放在root用户下的crontab文件，每天12点15分执行一次。
 
 ```
-15 12 * * * bash -c "cd /home/david/timemachine/linux-timemachine && ./do_incremental_rsync.sh 192.168.5.149:/home/david"
-15 12 * * * bash -c "cd /home/david/timemachine/linux-timemachine-b && ./do_incremental_rsync.sh 192.168.5.149:/home/david"
-15 12 * * * bash -c "cd /home/david/timemachine/linux-timemachine-sys && ./do_incremental_rsync.sh 192.168.5.149:/"
+15 12 * * * bash -c "cd /home/david/timemachine/ && ./do_incremental_rsync.sh"
 ```

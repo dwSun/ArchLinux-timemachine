@@ -48,7 +48,6 @@ To verify that hard linking actually works, use the `stat` command on a file in 
 
 这是目前使用的方式，在crontab里面加定时执行脚本。
 
-# m h  dom mon dow   command
-5 12 * * * bash -c "cd /home/david/timemachine/linux-timemachine && ./do_incremental_rsync.sh 192.168.5.149:/home/david 192.168.5.149:/media/Data/"
-5 12 * * * bash -c "cd /home/david/timemachine/linux-timemachine-b && ./do_incremental_rsync.sh 192.168.5.149:/home/david 192.168.5.149:/media/Data/"
-5 12 * * * bash -c "cd /home/david/timemachine/linux-timemachine-sys && ./do_incremental_rsync.sh 192.168.5.149:/ 192.168.5.149:/media/Data/"
+0 12 * * * bash -c "cd /home/david/linux-timemachine && ./do_incremental_rsync 192.168.5.149:/home/david 192.168.5.149:/media/Data/"
+32 11 * * * bash -c "cd /home/david/linux-timemachine-b && ./do_incremental_rsync 192.168.5.149:/home/david 192.168.5.149:/media/Data/"
+25 11 * * * bash -c "cd /home/david/linux-timemachine-sys && ./do_incremental_rsync 192.168.5.149:/ 192.168.5.149:/media/Data/"
