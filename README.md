@@ -1,53 +1,52 @@
-Linux Time Machine
+Linux 时间机器
 ------------------
 
-Rsync incremental backups with hard links. Save time and space. And your data.
 
-Macs have automatic incremental backups built in through [Time Machine](http://en.wikipedia.org/wiki/Time_Machine_%28Mac_OS%29)
+## 致谢
 
-![Apple TimeMachine](http://ekenberg.github.io/linux-timemachine/images/mac-timemachine.png)
+这是从 [Linux TimeMachine](https://github.com/ekenberg/linux-timemachine) fork 过来的，感谢原作者慷慨无私的分享，本脚本在原作者的基础上做了一些修改，使其更适合我的使用场景。
 
-Linux has rsync, bash and cron. Rsync can use [hard links](http://en.wikipedia.org/wiki/Hard_link) for unchanged files: only files changed since the previous backup are copied. This saves a lot of time and storage space.
+## 使用说明
 
-A few entries from my personal backup. As you can see, each day gets its own directory. Inside is a complete backup with every file from my workstation. Still, each day takes very little extra space, since only modified files are copied. The rest are hard links. (Don't mind the modification times - they are set by rsync to the last modification time of / on my workstation):
+使用硬链接的 Rsync 增量备份。节省时间和空间，以及保护您的数据。
 
-![Linux TimeMachine](http://ekenberg.github.io/linux-timemachine/images/linux-timemachine.png)
+Mac 电脑通过内置的 [Time Machine](http://en.wikipedia.org/wiki/Time_Machine_%28Mac_OS%29) 实现了自动增量备份。
 
-### Prerequisites
-* Backup to a filesystem which supports hard and soft links. No problem except for FAT or NTFS (Microsoft).
-* Mount the backup filesystem locally (NFS, USB-cable etc). I use a QNAP NAS which is mounted to /mnt/backup over NFS
+[Apple TimeMachine](http://ekenberg.github.io/linux-timemachine/images/mac-timemachine.png)
 
-### How To
-* Mount your backup target
-* Set configuration in backup.conf
-* Set exclude paths in backup_exclude.conf
-* Test with some small directory and -v: `sudo do_incremental_rsync.sh -v /some/test-directory`
-* Do a full system backup: `sudo do_incremental_rsync.sh`. If /home is on a separate partition: `sudo do_incremental_rsync.sh /home /`. The first full backup will take a long time since all files must be copied.
-* Finally, set up to run nightly, as root, through cron. I recommend doing a full run early morning or just after midnight, see [Notes](#notes) below.
+Linux 拥有 rsync、bash 和 cron。Rsync 可以利用 [硬链接](http://en.wikipedia.org/wiki/Hard_link) 对未更改的文件进行处理：只有自上次备份以来发生变化的文件才会被复制。这可以节省大量时间和存储空间。
 
-### Check hard links
-To verify that hard linking actually works, use the `stat` command on a file in the latest backup which you know has not been changed for some time. `stat` shows a field `Links: #` which tells how many hard links a file has. My /etc/fstab hasn't changed for a long time:
+### 预备条件
+* 备份到支持硬链接和软链接的文件系统。除了 FAT 或 NTFS（微软的产品）之外没有问题。推荐使用btrfs并开启压缩功能，这可以进一步节省空间。
+* 需要提前设置好ssh密钥，以便无密码登录。请注意如果备份的内容是root用户的，那么密钥也需要放在客户机的root用户下。
 
-![Stat output](http://ekenberg.github.io/linux-timemachine/images/stat-verify-hard-links.jpg)
+### 如何操作
+* 在 config文件夹中设置备份配置，可以设置多个备份目录，以及备份对象，每个备份对象可以设置排除的目录。
+* 在 config/exclude 中设置排除路径
+* 使用一些小目录和 -v 参数测试：`sudo do_incremental_rsync.sh -v`
+* 首次全备份需要很长时间，因为所有文件都需要复制。
+* 最后，通过 cron 安排固定时间以 root 身份运行。因为我这里是办公室使用的机器，所以我设置了每天12点15分执行一次。正好是午餐的时间，不会影响到我工作。
+
+下面是我使用的crontab文件，每天12点15分执行一次：
+
+
+```
+15 12 * * * bash -c "cd /home/david/timemachine/ && ./do_incremental_rsync.sh"
+```
+
+注意，我这里因为需要备份根目录，所以这个配置文件是放在root用户下的，如果只是备份普通用户的目录，那么可以放在普通用户下。
+
+
+### 检查硬链接
+为了验证硬链接确实起作用，可以使用 `stat` 命令检查最近备份中某个已知一段时间未改变的文件。`stat` 显示一个字段 `Links: #`，该字段显示文件有多少个硬链接。我的 /etc/fstab 已经很长时间没有改变了：
+
+[Stat 输出](http://ekenberg.github.io/linux-timemachine/images/stat-verify-hard-links.jpg)
 
 <a name='notes'/>
 
-### Notes
-* _Important:_ For hard links to work, the first backup each day must be a full system backup. Why? Because the script updates the current-link when it is run. If the first backup of the day is for /home/user/some/directory, and the current-link is updated. When a full backup is run, it will look for the last backup through the current-link and not find any files except /home/user/some/directory, and it must make a new copy of everything. This will waste a lot of space! Make sure to do a full backup every night just after midnight and you should be fine.
-* I do backups nightly, and the script stores them with the current date in the directory name. So any additional backups during the day will end up overwriting the current date's backup. That's fine for me, but if you want to keep more frequent copies, you should look at the `$TODAY` variable in the script. Maybe add hour or hour-minute to the format. Please understand that the first backup to every new date/time should be a full backup, as explained above.
-* rsync is run with --one-file-system. If you have several filesystems to backup, you must supply them all as arguments to the script. Example: If /home is mounted on a separate partition you would make a system backup like this: `do_incremental_rsync.sh /home /`
-
-
-
-# 2024-07-30
-
-这个是我自己用的版本，由于远程nas并不能很好的处理文件系统。所以我把这个脚本做了一下改动，在远程机器上运行，备份本地的数据，目前是手动启动的，回头看看有机会再给改成一个能自动启动得好了。
-
-
-# 2024-08-27
-
-这是目前使用的方式，在crontab里面加定时执行脚本。
-
-0 12 * * * bash -c "cd /home/david/linux-timemachine && ./do_incremental_rsync 192.168.5.149:/home/david 192.168.5.149:/media/Data/"
-32 11 * * * bash -c "cd /home/david/linux-timemachine-b && ./do_incremental_rsync 192.168.5.149:/home/david 192.168.5.149:/media/Data/"
-25 11 * * * bash -c "cd /home/david/linux-timemachine-sys && ./do_incremental_rsync 192.168.5.149:/ 192.168.5.149:/media/Data/"
+### 注意事项
+* _重要提示：_ 为了让硬链接工作，第一个备份必须是全系统的备份。为什么？因为脚本在运行时会更新当前链接。如果一天中的第一个备份是针对 /home/user/some/directory 的，并且当前链接被更新，那么当执行全备份时，它将通过当前链接查找最后一次备份，但只能找到 /home/user/some/directory 中的文件，因此必须重新复制所有内容。这将浪费大量的空间！
+* 我每天做一次备份，脚本会用当前日期作为目录名称来存储备份。因此，当天的任何额外备份都会覆盖当前日期的备份。对我来说这是可以接受的，但如果您希望保留更频繁的副本，应该查看脚本中的 `$TODAY` 变量。也许可以在格式中添加小时或小时-分钟。
+* rsync 是与 --one-file-system 选项一起运行的。如果您有几个文件系统需要备份，请单独设置备份配置文件。
+* rsync 的 --delete 选项不会删除硬链接。如果您删除了备份中的文件，硬链接将保留，直到所有硬链接都被删除。这是 rsync 的默认行为，但是请注意，如果您使用了其他选项，可能会删除硬链接。
+* 请注意，针对每个备份配置，本脚本都会启动一个单独的rsync 进程。如果您有多个配置，可能会同时运行多个rsync进程。这可能会导致系统负载增加，因此请注意。
