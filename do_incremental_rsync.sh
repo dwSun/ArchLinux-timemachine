@@ -61,8 +61,8 @@ function backup {
     [ -d "$NEW_BACKUP" ] || die "No such directory: $NEW_BACKUP"
     
     # Do the backup
-    echo "rsync -avpPe ssh --delete --relative --one-file-system --numeric-ids --exclude-from=./config/exclude/$BACKUP_EXCLUDE --link-dest=\"$CURRENT_BACKUP\" \"$BACKUP_WHAT\" \"$NEW_BACKUP\""
-    rsync -avpPe ssh --delete --relative --one-file-system --numeric-ids --exclude-from=./config/exclude/$BACKUP_EXCLUDE --link-dest="$CURRENT_BACKUP" "$BACKUP_WHAT" "$NEW_BACKUP"
+    echo "rsync -avpPe ssh --delete --relative --one-file-system --numeric-ids --exclude-from=./config/exclude/$BACKUP_EXCLUDE --link-dest=\"$CURRENT_BACKUP\" \"$BACKUP_HOST:$BACKUP_WHAT\" \"$NEW_BACKUP\""
+    rsync -avpPe ssh --delete --relative --one-file-system --numeric-ids --exclude-from=./config/exclude/$BACKUP_EXCLUDE --link-dest="$CURRENT_BACKUP" "$BACKUP_HOST:$BACKUP_WHAT" "$NEW_BACKUP"
     
     # Update soft link to current backup
     [ -h "$CURRENT_BACKUP" ] && rm -f "$CURRENT_BACKUP"
