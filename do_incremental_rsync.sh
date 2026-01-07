@@ -75,6 +75,8 @@ for conf in $(ls config); do
     echo "Using config: $conf"
     source config/$conf || die "Cannot read config file: $conf"
     backup&
+    sleep 1
+    ./cleaner/cleaner
 done
 
 wait
