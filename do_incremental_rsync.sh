@@ -31,7 +31,7 @@ if [ `id -u` != "0" ]; then
 fi
 
 
-TODAY=`date +"%Y-%m-%d"`
+TODAY=`date +"%Y-%m-%d-%H"`
 
 function backup {
     [ -z "${BACKUP_BASE}" ] && die "BACKUP_BASE not configured"
