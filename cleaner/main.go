@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -135,12 +136,45 @@ func main() {
 	}
 
 	log.Printf("准备删除旧备份目录数量：[count=%d]", len(toDelete))
+	for _, name := range toDelete {
+		log.Printf("待删除目录：[name=%s]", name)
+	}
 
+	// 创建临时空目录用于 rsync 删除操作
+	tmpEmptyDir := "/tmp/tm-cleaner-empty"
+	if err := os.MkdirAll(tmpEmptyDir, 0755); err != nil {
+		log.Fatalf("创建临时空目录失败：[path=%s] [error=%v]", tmpEmptyDir, err)
+	}
+	defer func() {
+		// 清理临时空目录
+		if err := os.RemoveAll(tmpEmptyDir); err != nil {
+			log.Printf("清理临时空目录失败：[path=%s] [error=%v]", tmpEmptyDir, err)
+		} else {
+			log.Printf("已清理临时空目录：[path=%s]", tmpEmptyDir)
+		}
+	}()
+
+	log.Printf("使用 rsync 方式批量删除，临时空目录：[tmpEmptyDir=%s]", tmpEmptyDir)
+
+	// 使用 rsync 方式删除每个目录
 	for _, name := range toDelete {
 		fullPath := filepath.Join(absBase, name)
-		log.Printf("删除旧备份目录：[path=%s]", fullPath)
-		if err := os.RemoveAll(fullPath); err != nil {
-			log.Printf("删除目录失败，请手动检查：[path=%s] [error=%v]", fullPath, err)
+		// 确保路径末尾有 /，这样 rsync 会清空目录内容而不是创建子目录
+		targetPath := fullPath + "/"
+		log.Printf("正在删除目录：[path=%s]", fullPath)
+
+		// 执行 rsync -a --delete 命令
+		cmd := exec.Command("rsync", "-av", "--delete", tmpEmptyDir+"/", targetPath)
+		if err := cmd.Run(); err != nil {
+			log.Printf("rsync 删除目录失败，请手动检查：[path=%s] [error=%v]", fullPath, err)
+			continue
+		}
+
+		// rsync 只清空内容，目录本身还在，需要删除空目录
+		if err := os.Remove(fullPath); err != nil {
+			log.Printf("删除空目录失败，请手动检查：[path=%s] [error=%v]", fullPath, err)
+		} else {
+			log.Printf("成功删除目录：[path=%s]", fullPath)
 		}
 	}
 
