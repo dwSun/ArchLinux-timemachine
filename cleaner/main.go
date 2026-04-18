@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
 
 // 本程序用于清理基于 linux-timemachine 生成的备份目录。
@@ -22,10 +24,16 @@ import (
 // 4. 计算当前日期，对 “超过 7 天” 的日期（严格大于 7 天前的日期）：
 //    - 每个日期只保留当天最早时间点对应的目录
 //    - 该日期下其他同名前缀目录全部删除（rm -rf 效果，使用 os.RemoveAll）
+// 5. 例行清理结束后，对 BACKUP_BASE 所在文件系统（statfs 路径与备份一致）检查可用空间；
+//    若可用空间不大于 200GB，则按时间从旧到新删除合法命名的备份目录，每删一个重新统计，
+//    直到可用空间大于 200GB 或无目录可删（此阶段不保留「最近 7 天」例外）。
 //
 // 注意：
 // - 只处理目录，不会动普通文件
 // - 只处理名称形如 BACKUP_NAME-YYYY-MM-DD-HH 的目录，其他格式会被跳过
+
+// minFreeBytes 空间保障阈值：可用空间需严格大于该值（200 GiB）。
+const minFreeBytes uint64 = 200 * 1024 * 1024 * 1024
 
 // parseBackupDate 从目录名里提取日期部分并解析。
 // 目录名示例：eXile-vms-2026-01-02-00
@@ -53,13 +61,106 @@ func parseBackupDate(dirName, backupName string) (time.Time, string, error) {
 	return parsedDate, dateStr, nil
 }
 
+// resolveStatPath 得到用于 statfs 的路径：解析符号链接，确保统计的是备份数据实际所在挂载。
+func resolveStatPath(absBase string) string {
+	real, err := filepath.EvalSymlinks(absBase)
+	if err != nil {
+		log.Printf("解析 BACKUP_BASE 符号链接失败，将使用原路径做磁盘统计：[absBase=%s] [error=%v]", absBase, err)
+		return absBase
+	}
+	return real
+}
+
+// availableBytes 返回 path 所在文件系统的可用字节数（与 df 中 avail 含义一致，使用 Bavail）。
+func availableBytes(statPath string) (uint64, error) {
+	var st unix.Statfs_t
+	if err := unix.Statfs(statPath, &st); err != nil {
+		return 0, err
+	}
+	return uint64(st.Bavail) * uint64(st.Bsize), nil
+}
+
+// listSortedValidBackupNames 列出 BACKUP_BASE 下符合前缀且名称可解析为 BACKUP_NAME-YYYY-MM-DD-HH 的目录名（已排序）。
+func listSortedValidBackupNames(absBase, backupName string) ([]string, error) {
+	entries, err := os.ReadDir(absBase)
+	if err != nil {
+		return nil, err
+	}
+	var names []string
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if !strings.HasPrefix(name, backupName+"-") {
+			continue
+		}
+		if _, _, err := parseBackupDate(name, backupName); err != nil {
+			log.Printf("跳过目录（名称不符合备份格式）：[name=%s] [error=%v]", name, err)
+			continue
+		}
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names, nil
+}
+
+// deleteBackupWithRsync 使用与例行清理相同的方式删除单个备份目录。
+func deleteBackupWithRsync(tmpEmptyDir, absBase, name string) error {
+	fullPath := filepath.Join(absBase, name)
+	targetPath := fullPath + "/"
+	log.Printf("正在删除目录：[path=%s]", fullPath)
+	cmd := exec.Command("rsync", "-av", "--delete", tmpEmptyDir+"/", targetPath)
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("rsync 删除目录失败：[path=%s] [error=%w]", fullPath, err)
+	}
+	if err := os.Remove(fullPath); err != nil {
+		return fmt.Errorf("删除空目录失败：[path=%s] [error=%w]", fullPath, err)
+	}
+	log.Printf("成功删除目录：[path=%s]", fullPath)
+	return nil
+}
+
+// ensureFreeSpaceAboveMin 在 statPath 上检查可用空间；不足则按最旧备份依次删除，每删一次重新统计。
+// 不保留「最近 7 天」：只要空间不足且还有可删目录就会删。
+func ensureFreeSpaceAboveMin(statPath, absBase, backupName, tmpEmptyDir string) {
+	for {
+		avail, err := availableBytes(statPath)
+		if err != nil {
+			log.Printf("读取备份所在文件系统可用空间失败，跳过空间保障：[statPath=%s] [error=%v]", statPath, err)
+			return
+		}
+		log.Printf("备份所在文件系统可用空间：[statPath=%s] [availBytes=%d] [minFreeBytes=%d]", statPath, avail, minFreeBytes)
+		if avail > minFreeBytes {
+			log.Printf("可用空间已大于阈值，空间保障结束。")
+			return
+		}
+
+		names, err := listSortedValidBackupNames(absBase, backupName)
+		if err != nil {
+			log.Printf("列出备份目录失败，无法继续释放空间：[BACKUP_BASE=%s] [error=%v]", absBase, err)
+			return
+		}
+		if len(names) == 0 {
+			log.Printf("可用空间仍不足且无符合命名规则的备份目录可删，请人工处理。[availBytes=%d] [minFreeBytes=%d]", avail, minFreeBytes)
+			return
+		}
+
+		oldest := names[0]
+		log.Printf("可用空间不足，将删除最旧备份：[name=%s]", oldest)
+		if err := deleteBackupWithRsync(tmpEmptyDir, absBase, oldest); err != nil {
+			log.Printf("删除备份失败，停止空间保障以免反复出错：[error=%v]", err)
+			return
+		}
+	}
+}
+
 func main() {
 	backupBase := os.Getenv("BACKUP_BASE")
 	backupName := os.Getenv("BACKUP_NAME")
 
 	if backupBase == "" || backupName == "" {
 		log.Fatalf("环境变量 BACKUP_BASE 或 BACKUP_NAME 缺失：[BACKUP_BASE=%s] [BACKUP_NAME=%s]", backupBase, backupName)
-		return
 	}
 
 	// 统一为绝对路径，避免误删
@@ -68,12 +169,25 @@ func main() {
 		log.Fatalf("解析 BACKUP_BASE 绝对路径失败：[BACKUP_BASE=%s] [error=%v]", backupBase, err)
 	}
 
-	log.Printf("开始清理备份目录：[BACKUP_BASE=%s] [BACKUP_NAME=%s]", absBase, backupName)
+	statPath := resolveStatPath(absBase)
+	log.Printf("开始清理备份目录：[BACKUP_BASE=%s] [BACKUP_NAME=%s] [statPath=%s]", absBase, backupName, statPath)
 
 	entries, err := os.ReadDir(absBase)
 	if err != nil {
 		log.Fatalf("读取备份根目录失败：[BACKUP_BASE=%s] [error=%v]", absBase, err)
 	}
+
+	tmpEmptyDir := "/tmp/tm-cleaner-empty"
+	if err := os.MkdirAll(tmpEmptyDir, 0755); err != nil {
+		log.Fatalf("创建临时空目录失败：[path=%s] [error=%v]", tmpEmptyDir, err)
+	}
+	defer func() {
+		if err := os.RemoveAll(tmpEmptyDir); err != nil {
+			log.Printf("清理临时空目录失败：[path=%s] [error=%v]", tmpEmptyDir, err)
+		} else {
+			log.Printf("已清理临时空目录：[path=%s]", tmpEmptyDir)
+		}
+	}()
 
 	// 收集所有符合前缀且为目录的名称
 	var dirNames []string
@@ -89,6 +203,7 @@ func main() {
 
 	if len(dirNames) == 0 {
 		log.Printf("未找到任何以指定前缀开头的备份目录：[BACKUP_BASE=%s] [BACKUP_NAME=%s]", absBase, backupName)
+		ensureFreeSpaceAboveMin(statPath, absBase, backupName, tmpEmptyDir)
 		return
 	}
 
@@ -132,51 +247,21 @@ func main() {
 
 	if len(toDelete) == 0 {
 		log.Printf("没有需要删除的旧备份目录。")
-		return
-	}
-
-	log.Printf("准备删除旧备份目录数量：[count=%d]", len(toDelete))
-	for _, name := range toDelete {
-		log.Printf("待删除目录：[name=%s]", name)
-	}
-
-	// 创建临时空目录用于 rsync 删除操作
-	tmpEmptyDir := "/tmp/tm-cleaner-empty"
-	if err := os.MkdirAll(tmpEmptyDir, 0755); err != nil {
-		log.Fatalf("创建临时空目录失败：[path=%s] [error=%v]", tmpEmptyDir, err)
-	}
-	defer func() {
-		// 清理临时空目录
-		if err := os.RemoveAll(tmpEmptyDir); err != nil {
-			log.Printf("清理临时空目录失败：[path=%s] [error=%v]", tmpEmptyDir, err)
-		} else {
-			log.Printf("已清理临时空目录：[path=%s]", tmpEmptyDir)
-		}
-	}()
-
-	log.Printf("使用 rsync 方式批量删除，临时空目录：[tmpEmptyDir=%s]", tmpEmptyDir)
-
-	// 使用 rsync 方式删除每个目录
-	for _, name := range toDelete {
-		fullPath := filepath.Join(absBase, name)
-		// 确保路径末尾有 /，这样 rsync 会清空目录内容而不是创建子目录
-		targetPath := fullPath + "/"
-		log.Printf("正在删除目录：[path=%s]", fullPath)
-
-		// 执行 rsync -a --delete 命令
-		cmd := exec.Command("rsync", "-av", "--delete", tmpEmptyDir+"/", targetPath)
-		if err := cmd.Run(); err != nil {
-			log.Printf("rsync 删除目录失败，请手动检查：[path=%s] [error=%v]", fullPath, err)
-			continue
+	} else {
+		log.Printf("准备删除旧备份目录数量：[count=%d]", len(toDelete))
+		for _, name := range toDelete {
+			log.Printf("待删除目录：[name=%s]", name)
 		}
 
-		// rsync 只清空内容，目录本身还在，需要删除空目录
-		if err := os.Remove(fullPath); err != nil {
-			log.Printf("删除空目录失败，请手动检查：[path=%s] [error=%v]", fullPath, err)
-		} else {
-			log.Printf("成功删除目录：[path=%s]", fullPath)
+		log.Printf("使用 rsync 方式批量删除，临时空目录：[tmpEmptyDir=%s]", tmpEmptyDir)
+
+		for _, name := range toDelete {
+			if err := deleteBackupWithRsync(tmpEmptyDir, absBase, name); err != nil {
+				log.Printf("例行清理删除失败，请手动检查：[error=%v]", err)
+			}
 		}
 	}
 
 	log.Printf("旧备份清理完成。")
+	ensureFreeSpaceAboveMin(statPath, absBase, backupName, tmpEmptyDir)
 }
