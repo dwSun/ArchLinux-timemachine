@@ -72,11 +72,16 @@ function backup {
 
 # Read all config files in config/ and start backup in background
 for conf in $(ls config); do
+# 如果配置文件名不是以 backup 开头，则跳过
+    if [[ $conf != backup* ]]; then
+        echo "Skipping config: $conf"
+        continue
+    fi
     echo "Using config: $conf"
     source config/$conf || die "Cannot read config file: $conf"
-    backup&
-    sleep 1
     ./cleaner/cleaner
+    sleep 1
+    backup&
 done
 
 wait
