@@ -35,6 +35,21 @@ import (
 // minFreeBytes 空间保障阈值：可用空间需严格大于该值（200 GiB）。
 const minFreeBytes uint64 = 200 * 1024 * 1024 * 1024
 
+// humanizeBytes 将字节数格式化为人类可读字符串（IEC 二进制单位：KiB、MiB、GiB、TiB）。
+func humanizeBytes(b uint64) string {
+	const unit = uint64(1024)
+	if b < unit {
+		return fmt.Sprintf("%d B", b)
+	}
+	suffixes := []string{"KiB", "MiB", "GiB", "TiB", "PiB"}
+	div, exp := unit, 0
+	for n := b / unit; n >= unit && exp < len(suffixes)-1; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.2f %s", float64(b)/float64(div), suffixes[exp])
+}
+
 // parseBackupDate 从目录名里提取日期部分并解析。
 // 目录名示例：eXile-vms-2026-01-02-00
 // BACKUP_NAME: eXile-vms
@@ -130,7 +145,7 @@ func ensureFreeSpaceAboveMin(statPath, absBase, backupName, tmpEmptyDir string) 
 			log.Printf("读取备份所在文件系统可用空间失败，跳过空间保障：[statPath=%s] [error=%v]", statPath, err)
 			return
 		}
-		log.Printf("备份所在文件系统可用空间：[statPath=%s] [availBytes=%d] [minFreeBytes=%d]", statPath, avail, minFreeBytes)
+		log.Printf("备份所在文件系统可用空间：[statPath=%s] [avail=%s] [minFree=%s]", statPath, humanizeBytes(avail), humanizeBytes(minFreeBytes))
 		if avail > minFreeBytes {
 			log.Printf("可用空间已大于阈值，空间保障结束。")
 			return
@@ -142,7 +157,7 @@ func ensureFreeSpaceAboveMin(statPath, absBase, backupName, tmpEmptyDir string) 
 			return
 		}
 		if len(names) == 0 {
-			log.Printf("可用空间仍不足且无符合命名规则的备份目录可删，请人工处理。[availBytes=%d] [minFreeBytes=%d]", avail, minFreeBytes)
+			log.Printf("可用空间仍不足且无符合命名规则的备份目录可删，请人工处理。[avail=%s] [minFree=%s]", humanizeBytes(avail), humanizeBytes(minFreeBytes))
 			return
 		}
 
